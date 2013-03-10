@@ -1,7 +1,7 @@
 #!/usr/local/bin/python
 #-*- coding:utf-8 -*-
 # create by guojinpeng
-# for newsmth.net
+# for m.tianya.cn
 # use BeautifulSoup as the HTML parser
 # use urllib to fetch url
 
@@ -13,9 +13,7 @@ import urllib2
 
 from cls_mysql import *
 
-#from _mysql_exceptions import *
 from BeautifulSoup import BeautifulSoup,SoupStrainer
-# for image process
 import hashlib
 import socket
 timeout = 30
@@ -70,7 +68,6 @@ def download (url):
         return None
     return content
 def get_author_id(author_name):
-    
     global dbc,logger
     if author_name is None:
         return None
@@ -145,34 +142,6 @@ def get_content_list(aid):
                 break
             get_content(article_url,ac)
 """
-def get_pager_and_download(first_page):
-    global dbc,logger,conn
-    logger.LOG("downloading page %s", first_page)
-    content = download(_YIDU_DOMAIN_ + first_page)
-    if content is None:
-        print "[ERR][pager_download]first page is empty"
-        return
-    #保存第一篇文章
-    save_content(first_page, content)
-    #分析文章首页的分页
-    try:
-        pager_tag = BeautifulSoup(content, parseOnlyThese=SoupStrainer("div", { "class" : "pageNum1" }),smartQuotesTo=None)
-    except Exception,e:
-        logger.LOG("error when parsing pager content,%s",e)
-        try:
-            pager_tag = BeautifulSoup(content, parseOnlyThese=SoupStrainer("div", { "class" : "pageNum1" }),smartQuotesTo=None)
-        except Exception,e:
-            logger.LOG("error when parsing article content ,%s",e)
-            return None
-    #找出所有分页，保存页面
-    for tag in pager_tag.findAll('a', {"class" : "numPage"}):
-        print "====@@@@===="
-        a_url = tag['href']
-        a_page = tag.string
-        print a_url, a_page
-        logger.LOG("downloading page %s", a_url)
-        a_content = download(_YIDU_DOMAIN_ + a_url)
-        save_content(a_url, a_content)
 def save_content(a_url, a_content):
     if a_url is None or a_content is None:
         print "a_url or a_content is None"
@@ -187,25 +156,6 @@ def save_content(a_url, a_content):
         file(save_dir + "/" + a_url, 'w').write(a_content)
     except Exception,e:
         print "[ERR]save content failed! %s" % e
-def get_article_list(index_url):
-    if index_url is None:
-        return
-    content = download(index_url)
-    #content = file('./a_list2.html').read()
-    try:
-        list_tag = BeautifulSoup(content, parseOnlyThese=SoupStrainer("li", { "class" : "al" }),smartQuotesTo=None)
-    except Exception,e:
-        logger.LOG("error when parsing pager content,%s",e)
-        try:
-            pager_tag = BeautifulSoup(content, parseOnlyThese=SoupStrainer("li", { "class" : "al" }),smartQuotesTo=None)
-        except Exception,e:
-            logger.LOG("error when parsing article content ,%s",e)
-            return None
-    for tag in list_tag.findAll('a', {"class" : "list"}):
-        l_url = tag['href']
-        l_a_name = tag.string
-        print "article %s, article_first_url is %s" % (l_a_name, l_url)
-        get_pager_and_download(l_url)
 def loop_get_content(art_url, art_id, start_page):
     global dbc,logger,conn
     while 1:
@@ -215,7 +165,6 @@ def loop_get_content(art_url, art_id, start_page):
             break
         start_page = start_page + 1
         
-            
 def get_content(art_url,art_id,page_id):
     global dbc,logger,conn
     if art_url is None:
@@ -342,12 +291,7 @@ if __name__ == '__main__':
         #创建lock文件，写入pid
         logger.LOG("[INFO]creating lock file,writing pid,%s",pid)
         file(lock_file,'w').write(str(pid))
-    #get_content_list(1696)
-    #get_pager_and_download("./first.html")
-#article_index = "http://www.tianyayidu.com/channel.php?aid=150&action=hot&page=2"
-#get_article_list(article_index)
     keep_rolling()
-    #get_content("http://m.tianya.cn/bbs/art.jsp?item=16&id=716391&p=3895&vu=62813539168", "asdasd")
     logger.LOG('[INFO]delete lock file!')
     if os.path.exists(lock_file):
         os.unlink(lock_file)
