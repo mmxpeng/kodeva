@@ -253,6 +253,8 @@ def get_content(art_url,art_id,page_id):
         sql = """INSERT INTO novel SET novel_id = '%d', floor_id = '%s', content = '%s', author_id = '%d', ctime = '%s' """ % (art_id, floor_id_list[i], article_content, author_id, post_t[i])
         dbc.query(sql)
     logger.LOG("[INFO]%d new post download!", new_post_download)
+    if len(floor_id_list) == 0:
+        return (0, None)
     last_floor_id = floor_id_list[-1]
     sql = "UPDATE novel_list SET last_floor_id = '%s', last_page_id = '%s', last_grab_time = unix_timestamp() where novel_id = '%d' " % (last_floor_id, page_id, art_id)
     dbc.query(sql)
@@ -278,7 +280,7 @@ if __name__ == '__main__':
         mtime=os.path.getmtime(lock_file)
         time_now=time.time()
         time_diff = time_now-mtime
-        if time_diff > 60*180:
+        if time_diff > 60*60:
             os.system("kill "+old_pid)
             logger.LOG("[INFO]killing timeout process,pid:%s",old_pid)
             os.unlink(lock_file)
