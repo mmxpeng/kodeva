@@ -101,12 +101,12 @@ def get_task_list():
     return dbc.getAll(sql)
 def keep_rolling():
     global dbc,logger
+    logger.LOG("[INFO]start rolling...")
     task_list = get_task_list()
     if task_list is None:
         logger.LOG("[INFO]empty task...")
         return
     for t in task_list:
-        print t
         target_url = t['orig_url']
         loop_get_content(t['orig_url'], t['novel_id'], t['last_page_id'])
         
@@ -323,12 +323,31 @@ if __name__ == '__main__':
         search_days = 7
     else:
         search_days = int(sys.argv[1])
+    if os.path.exists(lock_file):
+        logger.LOG("[WARN]find lock file...")
+        old_pid = file(lock_file).read()
+        mtime=os.path.getmtime(lock_file)
+        time_now=time.time()
+        time_diff = time_now-mtime
+        if time_diff > 60*180:
+            os.system("kill "+old_pid)
+            logger.LOG("[INFO]killing timeout process,pid:%s",old_pid)
+            os.unlink(lock_file)
+            file(lock_file,'w').write(str(pid))
+        else:
+            logger.LOG("[INFO]find running process,running time %s seconds,exit!",time_diff)
+            sys.exit('find running process, graceful exit!')
+
+    else:
+        #创建lock文件，写入pid
+        logger.LOG("[INFO]creating lock file,writing pid,%s",pid)
+        file(lock_file,'w').write(str(pid))
     #get_content_list(1696)
     #get_pager_and_download("./first.html")
 #article_index = "http://www.tianyayidu.com/channel.php?aid=150&action=hot&page=2"
 #get_article_list(article_index)
     keep_rolling()
     #get_content("http://m.tianya.cn/bbs/art.jsp?item=16&id=716391&p=3895&vu=62813539168", "asdasd")
-    logger.LOG('删除lock文件！')
+    logger.LOG('[INFO]delete lock file!')
     if os.path.exists(lock_file):
         os.unlink(lock_file)
