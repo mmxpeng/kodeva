@@ -4,8 +4,7 @@
 # for newsmth.net
 # use BeautifulSoup as the HTML parser
 # use urllib to fetch url
-# download pages from newsmth.net
-# $Id:$
+
 import os
 import string
 import sys

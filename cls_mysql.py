@@ -8,14 +8,15 @@ import os
 import string
 import sys
 import MySQLdb
+
 from time import localtime,strftime
 import _mysql_exceptions
-
 db_rw_host = "localhost"
 db_user = "root"
-db_pass = ""
-db_name = "alibench"
-log_path = "/home/supertool/guojinpeng/works/modoo/cls_mysql.log" 
+db_pass = "neverchange"
+db_name = "testdb"
+log_path = "/home/log/cls_mysql.log" 
+#log_path = "/home/guojinpeng/proj/data/log/cls_mysql.log"
 class FileLog:
     def __init__(self,file):
         self.file=file
@@ -33,7 +34,7 @@ class DBC:
         pass
     def rw_connect(self):
         try:
-            self.db_conn = MySQLdb.connect(db_rw_host,db_user,db_pass,db_name, unix_socket="/tmp/mysql.sock",charset="utf8")
+            self.db_conn = MySQLdb.connect(db_rw_host,db_user,db_pass,db_name)
             self.db_cursor = self.db_conn.cursor(cursorclass=MySQLdb.cursors.DictCursor)
             return self.db_cursor
         except MySQLdb.Error,e: 
@@ -44,30 +45,32 @@ class DBC:
     def query (self,sql):
         #execute the sql,no data result
         try:
-            sql = unicode(sql,'latin1')
+            #sql = unicode(sql,'latin1')
             self.db_cursor.execute('set names utf8')
             self.db_cursor.execute(sql)
+            #print sql.decode('utf8')
         except MySQLdb.Error,e:
             self.FL.LOG("MySQL error on query:erron:%d,%s" ,e.args[0],e.args[1])
             self.FL.LOG("query is %s" , sql);
-            sys.exit("MySQL query error!")
+            #sys.exit("MySQL query error!")
             return False
                
-        except _mysql_exceptions.Warning,war:
+        except MySQLdb.OperationalError,war:
+            raise war
             self.FL.LOG("MySQL warning %s",war)
             self.FL.LOG("query is %s" , sql)
             return True
         return True
     def getOne (self,sql):
         try:
-            sql = unicode(sql,'latin1')
+            #sql = unicode(sql,'latin1')
             self.db_cursor.execute('set names utf8')            
             self.db_cursor.execute(sql)
             res = self.db_cursor.fetchone()
         except MySQLdb.Error,e:
             self.FL.LOG("MySQL error on query:erron:%d,%s" ,e.args[0],e.args[1])
             self.FL.LOG("query is %s" , sql);
-            sys.exit("MySQL query error!")
+            #sys.exit("MySQL query error!")
             return None
                
         except _mysql_exceptions.Warning,war:
@@ -79,16 +82,18 @@ class DBC:
             return None
         for key in res.keys():
             return res[key]
+    def get_insert_id (self):
+        return int(self.getOne("SELECT LAST_INSERT_ID()"))
     def getRow (self,sql):
         try:
-            sql = unicode(sql,'latin1')
+            #sql = unicode(sql,'latin1')
             self.db_cursor.execute('set names utf8')            
             self.db_cursor.execute(sql)
             res = self.db_cursor.fetchone()
         except MySQLdb.Error,e:
             self.FL.LOG("MySQL error on query:erron:%d,%s" ,e.args[0],e.args[1])
             self.FL.LOG("query is %s" , sql);
-            sys.exit("MySQL query error!")
+            #sys.exit("MySQL query error!")
             return None
                
         except _mysql_exceptions.Warning,war:
@@ -108,7 +113,7 @@ class DBC:
         except MySQLdb.Error,e:
             self.FL.LOG("MySQL error on query:erron:%d,%s" ,e.args[0],e.args[1])
             self.FL.LOG("query is %s" , sql);
-            sys.exit("MySQL query error!")
+            #sys.exit("MySQL query error!")
             return None
                
         except _mysql_exceptions.Warning,war:
@@ -118,11 +123,4 @@ class DBC:
         if len(res) is 0:
             return None
         return res
-
-    
-
-
-
-
-
 
