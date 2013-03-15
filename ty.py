@@ -83,18 +83,22 @@ def insert_author(author_name):
     sql = "insert into author_list set author_name = '%s', author_from = 'tianya'" % author_name
     dbc.query(sql)
     return dbc.get_insert_id()
-def article_in_box(art_id, floor_id):
+def article_in_box(art_id, floor_id, author_id, article_md5):
     global dbc,logger
     if art_id is None or floor_id is None:
         return True
     sql = "select count(1) from novel where novel_id = '%d' and floor_id = '%d' " % (art_id, int(floor_id))
     if int(dbc.getOne(sql)) > 0:
         return True
+    sql = "select count(1) from novel where novel_id = '%d' and author_id = '%d' and md5='%s' " % (art_id, author_id, article_md5)
+    if int(dbc.getOne(sql)) > 0:
+        logger.LOG("[ERROR]detected duplicate article, md5 %s, author_id %d, article_id %d", article_md5, author_id, art_id)
+        return True
     return False
 def get_task_list():
     global dbc,logger
     #FIXME: more complex task rules
-    sql = "select id, novel_id, orig_url, last_floor_id, last_page_id, last_grab_time from novel_list where last_grab_time+60 * grab_interval < unix_timestamp() and enabled = 1"
+    sql = "select id, novel_id, orig_url, last_floor_id, last_page_id, last_grab_time from novel_list where last_grab_time+60 * grab_interval < unix_timestamp() and enabled = 1 and need_init = 0"
     return dbc.getAll(sql)
 def keep_rolling():
     global dbc,logger
@@ -181,6 +185,8 @@ def get_content(art_url,art_id,page_id):
     if content is None:
         logger.LOG("[ERROR]download error!")
         return (-1, None)
+    #FIXME: check if content is invalid ??
+    logger.LOG("[INFO]content size %d", len(content))
     try:
         article_tag = BeautifulSoup(content, parseOnlyThese=SoupStrainer("div", { "class" : "sp lk" }),smartQuotesTo=None)
         author_tag = BeautifulSoup(content, parseOnlyThese=SoupStrainer("div", { "class" : "lk" }),smartQuotesTo=None)
@@ -212,7 +218,6 @@ def get_content(art_url,art_id,page_id):
     coding = author_tag.originalEncoding
     for t in author_tag:
         tt = t.renderContents()
-        #print "post_time is " + t.find('span').string + "\tauthor is " + t.find('a').string
         post_timestamp = t.find('span', {"class": "gray"}).string.encode(coding)
         author_name = t.find('a').string.encode(coding)
         post_t.append(post_timestamp)
@@ -245,12 +250,14 @@ def get_content(art_url,art_id,page_id):
         # 检查文章是否已经下载过
         floor_id = floor_id_list[i]
         article_content = conn.escape_string(article_list[i])
-        if article_in_box(art_id, floor_id):
-            logger.LOG("[WARN]article already in box: %d-%s", art_id, floor_id)
+        # get article md5
+        article_md5 = hashlib.md5(article_content).hexdigest()
+        author_id = get_author_id(author_list[i])
+        if article_in_box(art_id, floor_id, author_id, article_md5):
+            logger.LOG("[WARN]article already in box: %d-<floor_id>%s-<md5>%s", art_id, floor_id, article_md5)
             continue
         new_post_download += 1    
-        author_id = get_author_id(author_list[i])
-        sql = """INSERT INTO novel SET novel_id = '%d', floor_id = '%s', content = '%s', author_id = '%d', ctime = '%s' """ % (art_id, floor_id_list[i], article_content, author_id, post_t[i])
+        sql = """INSERT INTO novel SET novel_id = '%d', floor_id = '%s', content = '%s', author_id = '%d', ctime = '%s', md5='%s',  mtime = NOW() """ % (art_id, floor_id_list[i], article_content, author_id, post_t[i], article_md5)
         dbc.query(sql)
     logger.LOG("[INFO]%d new post download!", new_post_download)
     if len(floor_id_list) == 0:
