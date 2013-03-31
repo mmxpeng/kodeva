@@ -119,7 +119,6 @@ class Worker():
             return True
         sql = "select count(1) from novel where novel_id = '%d' and author_id = '%d' and md5='%s' " % (art_id, author_id, article_md5)
         if int(self.dbc.getOne(sql)) > 0:
-            logger.LOG("[ERROR]detected duplicate article, md5 %s, author_id %d, article_id %d", article_md5, author_id, art_id)
             return True
         return False
     def loop_get_content(self, art_url, art_id, start_page):
@@ -231,7 +230,7 @@ class Worker():
                 logger.LOG("[WARN]article already in box: %d-<floor_id>%s-<md5>%s", art_id, floor_id, article_md5)
                 continue
             new_post_download += 1    
-            sql = """INSERT INTO novel SET novel_id = '%d', floor_id = '%s', content = '%s', author_id = '%d', ctime = '%s', md5='%s',  mtime = NOW() """ % (art_id, floor_id_list[i], article_content, author_id, post_t[i], article_md5)
+            sql = """INSERT INTO novel SET novel_id = '%d', floor_id = '%s', content = '%s', author_id = '%d', ctime = '%s', md5='%s',  mtime = NOW() , page_id = '%d' """ % (art_id, floor_id_list[i], article_content, author_id, post_t[i], article_md5, page_id)
             self.dbc.query(sql)
         logger.LOG("[INFO]%d new post download!", new_post_download)
         if not is_last_page and new_post_download == 0 and page_id != 1:
@@ -274,7 +273,45 @@ def keep_rolling(task_type):
         w = Worker()
         for t in task_list:
             w.loop_get_content(t['orig_url'], t['novel_id'], t['last_page_id'])
-
+def check_lost_floors(article_id, start_floor_id):
+    global logger, dbc
+    if not article_id or not start_floor_id:
+        return []
+    lost_floors = []
+    p_floor = 0
+    n_floor = 0
+        
+    sql = "SELECT floor_id from novel where novel_id = '%s' and floor_id > '%s' ORDER BY floor_id ASC LIMIT 2000" % (article_id, start_floor_id)
+    for f in dbc.getAll(sql):
+        p_floor = f["floor_id"]
+        #print "p_floor is %d" % p_floor
+        #print "n_floor is %d" % n_floor
+        if n_floor == 0:
+            n_floor = p_floor
+            continue
+        while n_floor + 1 != p_floor:
+            #print "@@@@floor %d lost" % n_floor
+            lost_floors.append(n_floor)
+            n_floor = n_floor + 1
+        n_floor = n_floor + 1
+    c = c_start = 0
+    for i in lost_floors:
+        if c == 0:
+            c_start = i
+            print "start ", i
+        elif c == i - 1:
+            pass
+        else:
+            print "count " , c - c_start + 1
+            c_start = i
+            print "start ", i
+        c = i
+            
+    if c_start == c:
+        print "count  1"
+           
+        
+    
 def extract_article_meta(art_url):
     # 给定URL，分析出其中的作者，文章标题等信息
     global logger
@@ -387,6 +424,7 @@ if __name__ == '__main__':
             r_url = arg
         elif opt == "-o":
             r_task_type = int(arg)
+
     if r_type == "0": 
         lock_file = "/home/log/tianya_lock" + "." + str(r_task_type)
         check_lock(lock_file)
@@ -394,6 +432,9 @@ if __name__ == '__main__':
         on_exit(lock_file)
     elif r_type == "1":
         extract_article_meta(r_url)
+    elif r_type == "2":
+        check_lost_floors("716391", "85000")
+
     else:
         print "bad input"
         pass
