@@ -10,9 +10,9 @@ import string
 import sys
 import re
 import urllib2
-
 import getopt
 from cls_mysql import *
+import json
 
 from BeautifulSoup import BeautifulSoup,SoupStrainer
 import hashlib
@@ -63,7 +63,7 @@ def download (url):
         return None
     except urllib2.URLError,e:
         print "URLError:",e
-        logger.LOG("[ERROR]URL error: %d,%s", e.code, e.msg)
+        logger.LOG("[ERROR]URL error: %s", e)
         return None
     except Exception,e:
         print "Error:",e
@@ -110,7 +110,11 @@ class Worker():
         sql = "insert into author_list set author_name = '%s', author_from = 'tianya'" % author_name
         self.dbc.query(sql)
         return self.dbc.get_insert_id()
-    def article_in_box(self, art_id, floor_id, author_id, article_md5):
+    # 检查当前的文章(文章ID，楼号，作者，文章内容是否重复)
+    # 当前检查方式
+    # 1. 检查是否为重复的楼: 为了避免重复爬楼
+    # 2. 检查是否为重复的帖子：排除论坛返回的帖子是历史的帖子，楼号是最新的楼号
+    def article_in_box(self, art_id, floor_id, author_id, article_md5, t):
         global logger
         if art_id is None or floor_id is None:
             return True
@@ -118,7 +122,11 @@ class Worker():
         if int(self.dbc.getOne(sql)) > 0:
             return True
         sql = "select count(1) from novel where novel_id = '%d' and author_id = '%d' and md5='%s' " % (art_id, author_id, article_md5)
+        if int(self.dbc.getOne(sql)) == 0 :
+            return False
+        sql = "select unix_timestamp(ctime) > unix_timestamp('%s') from novel where novel_id = '%d' and floor_id < '%s' ORDER BY floor_id DESC LIMIT 1" % (t, art_id, floor_id)
         if int(self.dbc.getOne(sql)) > 0:
+            logger.LOG("[ERROR]bad post detected, novel_id<%d>, floor_id<%s>, ctime<%s>", art_id, floor_id, t)
             return True
         return False
     def loop_get_content(self, art_url, art_id, start_page):
@@ -143,7 +151,8 @@ class Worker():
                 orig_url = '%s', need_init = '1', enabled = 1, grab_interval = 20, ctime = NOW()" % (art_id, art_title, cat_id, author_id, art_url)
         return self.dbc.query(sql)
 
-    def get_content(self, art_url,art_id,page_id):
+    # 获取给定的page_id的文章
+    def get_content(self, art_url,art_id,page_id, is_roger_task = 0):
         global logger
         if art_url is None:
             return (-1, None)
@@ -157,9 +166,11 @@ class Worker():
             time.sleep(_HTTP_ERROR_SLEEP_)
         #content = file("./article.html").read()
         if content is None:
-            logger.LOG("[ERROR]download error!")
+            logger.LOG("[ERROR]download error for article %d, page %d!", art_id, page_id)
             return (-1, None)
         logger.LOG("[INFO]content size %d", len(content))
+        if len(content) < 200:
+            self.save_content(content, art_id, page_id)
         try:
             article_tag = BeautifulSoup(content, parseOnlyThese=SoupStrainer("div", { "class" : "sp lk" }),smartQuotesTo=None)
             author_tag = BeautifulSoup(content, parseOnlyThese=SoupStrainer("div", { "class" : "lk" }),smartQuotesTo=None)
@@ -226,21 +237,23 @@ class Worker():
             # get article md5
             article_md5 = hashlib.md5(article_content).hexdigest()
             author_id = self.get_author_id(author_list[i])
-            if self.article_in_box(art_id, floor_id, author_id, article_md5):
+            ctime = post_t[i]
+            if self.article_in_box(art_id, floor_id, author_id, article_md5, ctime):
                 logger.LOG("[WARN]article already in box: %d-<floor_id>%s-<md5>%s", art_id, floor_id, article_md5)
                 continue
             new_post_download += 1    
-            sql = """INSERT INTO novel SET novel_id = '%d', floor_id = '%s', content = '%s', author_id = '%d', ctime = '%s', md5='%s',  mtime = NOW() , page_id = '%d' """ % (art_id, floor_id_list[i], article_content, author_id, post_t[i], article_md5, page_id)
+            sql = """INSERT INTO novel SET novel_id = '%d', floor_id = '%s', content = '%s', author_id = '%d', ctime = '%s', md5='%s',  mtime = NOW() , page_id = '%d' """ % (art_id, floor_id, article_content, author_id, ctime, article_md5, page_id)
             self.dbc.query(sql)
         logger.LOG("[INFO]%d new post download!", new_post_download)
-        if not is_last_page and new_post_download == 0 and page_id != 1:
+        if not is_last_page and not is_roger_task and new_post_download == 0 and page_id != 1:
             logger.LOG("[ERROR]shit happens, dump page...")
             self.save_content(content, art_id, page_id)
         if len(floor_id_list) == 0:
             return (0, None)
-        last_floor_id = floor_id_list[-1]
-        sql = "UPDATE novel_list SET last_floor_id = '%s', last_page_id = '%s', last_grab_time = unix_timestamp()  where novel_id = '%d' " % (last_floor_id, page_id, art_id)
-        self.dbc.query(sql)
+        if not is_roger_task:
+            last_floor_id = floor_id_list[-1]
+            sql = "UPDATE novel_list SET last_floor_id = '%s', last_page_id = '%s', last_grab_time = unix_timestamp()  where novel_id = '%d' " % (last_floor_id, page_id, art_id)
+            self.dbc.query(sql)
         return (0, is_last_page)
 
 def get_task_list(task_type, task_limit):
@@ -248,9 +261,27 @@ def get_task_list(task_type, task_limit):
     #FIXME: more complex task rules
     sql = "select id, novel_id, orig_url, last_floor_id, last_page_id, last_grab_time from novel_list where last_grab_time+60 * grab_interval < unix_timestamp() and enabled = 1 and need_init = %d LIMIT %d" % (task_type, task_limit)
     return dbc.getAll(sql)
+# 获取补刀的task列表
+# 补刀task的表结构设计
+# id| novel_id| page_list| status
+# page_list 是数组，json格式
+# status 是状态，是否处理过这个task了
+def get_roger_task():
+    global logger, dbc
+    sql = "select j.id, j.novel_id, j.lost_pages, l.orig_url from novel_ota_jobs as j left join novel_list as l ON j.novel_id = l.novel_id where j.status = 0 limit 10"
+    return dbc.getAll(sql)
 def gogogo(url, novel_id, last_page_id):
     w = Worker()
     w.loop_get_content(url, novel_id, last_page_id)
+def roger_go(roger_id, url, novel_id, page_list):
+    global logger, dbc
+    w = Worker()
+    for p in page_list:
+        current_url = url + "&p=" + str(p)
+        w.get_content(current_url, novel_id, p, 1)
+    sql = "update novel_ota_jobs set status = 1, ftime=NOW() where id = '%d'" % roger_id
+    dbc.query(sql)
+
 def keep_rolling(task_type):
     global logger, dbc
     logger.LOG("[INFO]start rolling..., task type is %s", task_type)
@@ -264,6 +295,19 @@ def keep_rolling(task_type):
             p.start()
         for t in task_list:
             p.join()
+    elif task_type == 2:
+        task_list = get_roger_task()
+        print task_list
+        if task_list is None:
+            logger.LOG("[INFO]empty task...")
+            return
+        for t in task_list:
+            p = Process(target=roger_go, args=(t['id'], t['orig_url'], t['novel_id'], json.loads(t['lost_pages']),))
+            p.start()
+        for t in task_list:
+            p.join()
+        
+            
     else:
         task_type = 0
         task_list = get_task_list(task_type, 100)
@@ -281,7 +325,7 @@ def check_lost_floors(article_id, start_floor_id):
     p_floor = 0
     n_floor = 0
         
-    sql = "SELECT floor_id from novel where novel_id = '%s' and floor_id > '%s' ORDER BY floor_id ASC LIMIT 2000" % (article_id, start_floor_id)
+    sql = "SELECT floor_id from novel where novel_id = '%s' and floor_id > '%s' ORDER BY floor_id ASC" % (article_id, start_floor_id)
     for f in dbc.getAll(sql):
         p_floor = f["floor_id"]
         #print "p_floor is %d" % p_floor
@@ -291,24 +335,34 @@ def check_lost_floors(article_id, start_floor_id):
             continue
         while n_floor + 1 != p_floor:
             #print "@@@@floor %d lost" % n_floor
-            lost_floors.append(n_floor)
+            lost_floors.append(n_floor+1)
             n_floor = n_floor + 1
         n_floor = n_floor + 1
-    c = c_start = 0
-    for i in lost_floors:
-        if c == 0:
-            c_start = i
-            print "start ", i
-        elif c == i - 1:
-            pass
+    lost_pages = {}
+    
+    for c in lost_floors:
+        a1 = c/20
+        a2 = c%20
+        
+        if a2 != 0:
+            a1 = a1 + 1
+        if lost_pages.has_key(a1):
+            lost_pages[a1].append(c) 
         else:
-            print "count " , c - c_start + 1
-            c_start = i
-            print "start ", i
-        c = i
+            lost_pages[a1] = [c]
             
-    if c_start == c:
-        print "count  1"
+        #print "lost %d, in page %d" % (c, a1)
+    lost_page_final = []
+    for k in lost_pages.keys():
+        if len(lost_pages[k]) > 0:
+            print k, lost_pages[k]
+            lost_page_final.append(k)
+    if len(lost_page_final) > 0:
+        to_json = json.dumps(lost_page_final)
+        sql = "INSERT INTO novel_ota_jobs SET novel_id = '%s', lost_pages='%s', ctime=NOW(), status=0" % (article_id, to_json)
+        dbc.query(sql)
+    
+   
            
         
     
@@ -433,7 +487,8 @@ if __name__ == '__main__':
     elif r_type == "1":
         extract_article_meta(r_url)
     elif r_type == "2":
-        check_lost_floors("716391", "85000")
+        ## FIXME: 这里还是写死的
+        check_lost_floors("824851", "10000")
 
     else:
         print "bad input"
