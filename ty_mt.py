@@ -169,8 +169,10 @@ class Worker():
             logger.LOG("[ERROR]download error for article %d, page %d!", art_id, page_id)
             return (-1, None)
         logger.LOG("[INFO]content size %d", len(content))
-        if len(content) < 200:
+        if len(content) < 5000:
+            logger.LOG("[ERROR]maybe bad response,dumping it...")
             self.save_content(content, art_id, page_id)
+            return (-1, None)
         try:
             article_tag = BeautifulSoup(content, parseOnlyThese=SoupStrainer("div", { "class" : "sp lk" }),smartQuotesTo=None)
             author_tag = BeautifulSoup(content, parseOnlyThese=SoupStrainer("div", { "class" : "lk" }),smartQuotesTo=None)
@@ -259,7 +261,8 @@ class Worker():
 def get_task_list(task_type, task_limit):
     global logger, dbc
     #FIXME: more complex task rules
-    sql = "select id, novel_id, orig_url, last_floor_id, last_page_id, last_grab_time from novel_list where last_grab_time+60 * grab_interval < unix_timestamp() and enabled = 1 and need_init = %d LIMIT %d" % (task_type, task_limit)
+    
+    sql = "select id, novel_id, orig_url, last_floor_id, last_page_id, last_grab_time from novel_list where last_grab_time+60 * grab_interval < unix_timestamp() and enabled = 1 and need_init = %d ORDER BY last_grab_time ASC LIMIT %d" % (task_type, task_limit)
     return dbc.getAll(sql)
 # 获取补刀的task列表
 # 补刀task的表结构设计
@@ -488,7 +491,7 @@ if __name__ == '__main__':
         extract_article_meta(r_url)
     elif r_type == "2":
         ## FIXME: 这里还是写死的
-        check_lost_floors("824851", "10000")
+        check_lost_floors("3970326", "100")
 
     else:
         print "bad input"
