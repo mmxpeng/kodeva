@@ -12,9 +12,9 @@ import MySQLdb
 from time import localtime,strftime
 import _mysql_exceptions
 db_rw_host = "localhost"
-db_user = "root"
-db_pass = "neverchange"
-db_name = "testdb"
+db_user = "tianya"
+db_pass = "tianya"
+db_name = "manage"
 log_path = "/home/log/cls_mysql.log" 
 #log_path = "/home/guojinpeng/proj/data/log/cls_mysql.log"
 class FileLog:
@@ -24,7 +24,8 @@ class FileLog:
     def LOG(self,format,*args):
         fd = open(self.file,"a+")
         thetime = strftime("%Y-%m-%d %H:%M:%S",localtime())
-        fd.write("[%s] %s\n" % (thetime,format%args))
+        pid = os.getpid()
+        fd.write("[%s][%d] %s\n" % (thetime,pid,format%args))
         fd.close()
 class DBC:
     def __init__(self):        

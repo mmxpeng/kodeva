@@ -360,10 +360,13 @@ def check_lost_floors(article_id, start_floor_id):
         if len(lost_pages[k]) > 0:
             print k, lost_pages[k]
             lost_page_final.append(k)
+    lost_page_final.sort()        
     if len(lost_page_final) > 0:
         to_json = json.dumps(lost_page_final)
         sql = "INSERT INTO novel_ota_jobs SET novel_id = '%s', lost_pages='%s', ctime=NOW(), status=0" % (article_id, to_json)
         dbc.query(sql)
+        print "insert ota_jobs to db for article %s" % article_id
+        print "please run ota jobs later!"
     
    
            
@@ -426,6 +429,11 @@ def extract_article_meta(art_url):
 
 def usage():
     print "Usage:ty_mt.py [-t|-o] args...."
+    print "./ty_mt.py -t1 --url 'to import new article'"
+    print "./ty_mt.py -t2 --start_floor --article_id  'to check lost floors and push ota jobs'"
+    print "./ty_mt.py -t0 -o0 'to run normal jobs'"
+    print "./ty_mt.py -t0 -o1 'to run init jobs'"
+    print "./ty_mt.py -t0 -o2 'to run ota jobs'"
 def check_lock(lock_file):
     global logger
     pid = os.getpid()
@@ -466,7 +474,7 @@ if __name__ == '__main__':
     r_task_type = 0
     # 获取参数
     try:
-        opts,args = getopt.getopt(sys.argv[1:], "ht:o:", ["help", "type=", "url="])
+        opts,args = getopt.getopt(sys.argv[1:], "ht:o:", ["help", "type=", "url=", "start_floor=", "article_id="])
     except getopt.GetoptError:
         usage()
         sys.exit(2)
@@ -481,6 +489,10 @@ if __name__ == '__main__':
             r_url = arg
         elif opt == "-o":
             r_task_type = int(arg)
+        elif opt == "--start_floor":
+            check_start_page = arg
+        elif opt == "--article_id":
+            check_art_id = arg
 
     if r_type == "0": 
         lock_file = "/home/log/tianya_lock" + "." + str(r_task_type)
@@ -490,9 +502,12 @@ if __name__ == '__main__':
     elif r_type == "1":
         extract_article_meta(r_url)
     elif r_type == "2":
-        ## FIXME: 这里还是写死的
-        check_lost_floors("3970326", "100")
+        if check_art_id is None or check_start_page is None:
+            usage()
+            sys.exit(2)
+        check_lost_floors(check_art_id, check_start_page)
 
     else:
         print "bad input"
-        pass
+        usage()
+        sys.exit(2)
