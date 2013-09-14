@@ -204,6 +204,9 @@ class Worker():
         coding = author_tag.originalEncoding
         for t in author_tag:
             tt = t.renderContents()
+            # 检查是否是广告tag，如果是广告，跳过
+            if t.find('span', {"class": "gray"}) is None:
+                continue
             post_timestamp = t.find('span', {"class": "gray"}).string.encode(coding)
             author_name = t.find('a').string.encode(coding)
             post_t.append(post_timestamp)
