@@ -103,6 +103,17 @@ class Worker():
         if author_id is None:
             return self.insert_author(author_name)
         return int(self.dbc.getOne(sql))
+    def insert_hot_article(self, novel_title, url):
+        global logger
+        if url is None or novel_title is None:
+            return None
+        #if isinstance(url, unicode):
+        #    print "///isinstance unicode"
+        novel_title = self.conn.escape_string(novel_title)
+        sql = "INSERT INTO novel_queue_a (novel_title,url,ctime, mtime) values  ('%s', '%s', NOW(), NOW())" % (novel_title, "http://bbs.tianya.cn" + url)
+        self.dbc.query(sql)
+        return self.dbc.get_insert_id()
+
     def insert_author(self, author_name):
         global logger
         if author_name is None:
@@ -144,6 +155,7 @@ class Worker():
             start_page = start_page + 1
     def add_article(self, art_url, art_title, art_id, author_name, cat_id):        
         global logger
+        print "asdasd@@@@"
 
         author_id = self.get_author_id(author_name)
         art_title = self.conn.escape_string(art_title)
@@ -373,7 +385,53 @@ def check_lost_floors(article_id, start_floor_id):
     
    
            
+def get_hot_alist_from_page(art_url):
+    global logger
+    if art_url is None:
+        return (-1, None)
+    logger.LOG("[INFO]get hot article %s", art_url)
+    if not _DEBUG_:
+        retry = 2
+        while retry > 0:
+            content = download(art_url)
+            if content is not None:
+                break
+            retry = retry - 1
+            time.sleep(_HTTP_ERROR_SLEEP_)
+    else:
+        content = file("./article.html").read()
         
+
+    retry = 2
+    if content is None:
+        logger.LOG("[ERROR]download error!")
+        return (-1, None)
+    try:
+        article_tag = BeautifulSoup(content, parseOnlyThese=SoupStrainer("div", { "class" : "mt5" }),smartQuotesTo=None)
+        coding = article_tag.originalEncoding
+        count = 0
+        remove_span_tag = re.compile("\<span .+\>.*\<\/span\>")
+        w = Worker()
+        for tbody in article_tag.findAll('tbody'): 
+            if count == 0:
+                count += 1
+                continue
+            #print d.renderContents()
+            for d in tbody.findAll('tr'):
+                dd = d.find('td')
+                num = dd.find('span').string
+                ### 此处，url需要是unicode，才能进行SQL的拼接
+                url = dd.find('a')['href'].encode(coding)
+                ### title也是unicode
+                title = dd.find('a').contents[0].string.encode(coding)
+                w.insert_hot_article(title, url)
+            count += 1
+
+    except Exception,e:
+        logger.LOG("[ERROR]error when parsing article content,%s",e)
+        return (0, count)
+
+       
     
 def extract_article_meta(art_url):
     # 给定URL，分析出其中的作者，文章标题等信息
@@ -434,6 +492,7 @@ def usage():
     print "Usage:ty_mt.py [-t|-o] args...."
     print "./ty_mt.py -t1 --url 'to import new article'"
     print "./ty_mt.py -t2 --start_floor --article_id  'to check lost floors and push ota jobs'"
+    print "./ty_mt.py -t3 'fetch hot articles'"
     print "./ty_mt.py -t0 -o0 'to run normal jobs'"
     print "./ty_mt.py -t0 -o1 'to run init jobs'"
     print "./ty_mt.py -t0 -o2 'to run ota jobs'"
@@ -509,7 +568,9 @@ if __name__ == '__main__':
             usage()
             sys.exit(2)
         check_lost_floors(check_art_id, check_start_page)
-
+    elif r_type == "3":
+        _DEBUG_ = 0
+        get_hot_alist_from_page('http://bbs.tianya.cn/list.jsp?item=feeling&grade=3&sub=1&order=1')
     else:
         print "bad input"
         usage()

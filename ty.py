@@ -169,103 +169,64 @@ def loop_get_content(art_url, art_id, start_page):
             break
         start_page = start_page + 1
         
-def get_content(art_url,art_id,page_id):
+def insert_hot_article(artname, url):
+    global dbc,logger,conn
+    sql = "INSERT INTO novel_queue_a (novel_title,url,ctime) values  ('%s','%s',NOW())" % (artname, "http://bbs.tianya.cn" + url)
+    dbc.query(sql)
+
+def get_hot_alist_from_page(art_url):
     global dbc,logger,conn
     if art_url is None:
         return (-1, None)
-    logger.LOG("[INFO]download article %d, page %d", art_id, page_id)
+    logger.LOG("[INFO]download article %s", art_url)
     retry = 2
+    """
     while retry > 0:
         content = download(art_url)
         if content is not None:
             break
         retry = retry - 1
         time.sleep(_HTTP_ERROR_SLEEP_)
-    #content = file("./article.html").read()
+    """
+    content = file("./article.html").read()
     if content is None:
         logger.LOG("[ERROR]download error!")
         return (-1, None)
     #FIXME: check if content is invalid ??
     logger.LOG("[INFO]content size %d", len(content))
     try:
-        article_tag = BeautifulSoup(content, parseOnlyThese=SoupStrainer("div", { "class" : "sp lk" }),smartQuotesTo=None)
-        author_tag = BeautifulSoup(content, parseOnlyThese=SoupStrainer("div", { "class" : "lk" }),smartQuotesTo=None)
-        pager_tag = BeautifulSoup(content, parseOnlyThese=SoupStrainer("div", { "class" : "pg" }),smartQuotesTo=None)
+        article_tag = BeautifulSoup(content, parseOnlyThese=SoupStrainer("div", { "class" : "mt5" }),smartQuotesTo=None)
     except Exception,e:
         logger.LOG("[ERROR]error when parsing article content,%s",e)
         try:
-            article_tag = BeautifulSoup(content, parseOnlyThese=SoupStrainer("div", { "class" : "sp lk" }),smartQuotesTo=None)
-            author_tag = BeautifulSoup(content, parseOnlyThese=SoupStrainer("div", { "class" : "lk" }),smartQuotesTo=None)
+            article_tag = BeautifulSoup(content, parseOnlyThese=SoupStrainer("div", { "class" : "mt5" }),smartQuotesTo=None)
         except Exception,e:
             logger.LOG("[ERROR]error when parsing article content ,%s",e)
             return (-1, None)
-    #print len(article_tag), len(author_tag)
-    #remove_adtag_re = re.compile("\<div class=\"article_adv_1\"\>.*\<\/div\>")
-    remove_adtag_re = re.compile("\<a href=\"rep\.jsp.*\"\>.*\<\/a\>")
-    floor_id_re = re.compile("\<a href=\"rep\.jsp.*\"\>回复第(?P<floor_id>\d+)楼\<\/a\>")
-    last_page_re= re.compile("\<a href=\"art\.jsp.*\"\>下一页\<\/a\>")
-    post_t = []
-    article_list = []
-    author_list = []
-    floor_id_list = []
-    # 判断是否是最后一页
-    is_last_page = 0
-    last_page_content = pager_tag.renderContents()
-    m = last_page_re.search(last_page_content)
-    if m is None:
-        is_last_page = 1
-    #parse the author tags
-    coding = author_tag.originalEncoding
-    for t in author_tag:
-        tt = t.renderContents()
-        post_timestamp = t.find('span', {"class": "gray"}).string.encode(coding)
-        author_name = t.find('a').string.encode(coding)
-        post_t.append(post_timestamp)
-        author_list.append(author_name)
-    #parse the article tags
     coding = article_tag.originalEncoding
-    for c in article_tag:
-        #print "---------------content is \n" + c.renderContents()
-        aa = c.renderContents(coding)
-        m = floor_id_re.search(aa)
-        if m is not None:
-            floor_id = m.group("floor_id")
-        else:
-            floor_id = "0"
-       
-        #print "------floor_id is " + floor_id
-        floor_id_list.append(floor_id)
-        aa = remove_adtag_re.sub("", aa) 
-        
-        
-        article_list.append(aa)
-        #print "---------------simple article content is -------------\n"
-        #print aa
-    new_post_download = 0    
-    for i in range(0,len(post_t)):
-        
-        #print "第%s楼" % floor_id_list[i]
-        #print "author: " + author_list[i].decode(coding) + "\tpost_time: " + post_t[i]
-        #print article_list[i]
-        # 检查文章是否已经下载过
-        floor_id = floor_id_list[i]
-        article_content = conn.escape_string(article_list[i])
-        # get article md5
-        article_md5 = hashlib.md5(article_content).hexdigest()
-        author_id = get_author_id(author_list[i])
-        if article_in_box(art_id, floor_id, author_id, article_md5):
-            logger.LOG("[WARN]article already in box: %d-<floor_id>%s-<md5>%s", art_id, floor_id, article_md5)
+    count = 0
+    remove_span_tag = re.compile("\<span .+\>.*\<\/span\>")
+    print 'coding is ', coding
+    for tbody in article_tag.findAll('tbody'): 
+        if count == 0:
+            count += 1
             continue
-        new_post_download += 1    
-        sql = """INSERT INTO novel SET novel_id = '%d', floor_id = '%s', content = '%s', author_id = '%d', ctime = '%s', md5='%s',  mtime = NOW() """ % (art_id, floor_id_list[i], article_content, author_id, post_t[i], article_md5)
-        dbc.query(sql)
-    logger.LOG("[INFO]%d new post download!", new_post_download)
-    if len(floor_id_list) == 0:
-        return (0, None)
-    last_floor_id = floor_id_list[-1]
-    sql = "UPDATE novel_list SET last_floor_id = '%s', last_page_id = '%s', last_grab_time = unix_timestamp() where novel_id = '%d' " % (last_floor_id, page_id, art_id)
-    dbc.query(sql)
-    return (0, is_last_page)
+        #print d.renderContents()
+        for d in tbody.findAll('tr'):
+            dd = d.find('td')
+            num = dd.find('span').string
+            url = dd.find('a')['href']
+            #title = dd.find('a').contents[0].string.encode(coding)
+            title = dd.find('a').contents[0]
+            
+            #title = remove_span_tag.sub('', title)
+            #print "%s\t%s\t%s" % (num, url, title)
+            #title = conn.escape_string(title)
+            #sql = "INSERT INTO novel_queue_a (novel_title,url,ctime) values  ('%s','%s',NOW())" % (title, "http://bbs.tianya.cn" + url)
+            #dbc.query(sql)
+            insert_hot_article(title, url)
+        count += 1
+    return (0, count)
 
 if __name__ == '__main__':
     #主程序入口
@@ -277,30 +238,5 @@ if __name__ == '__main__':
     dbc.rw_connect()
     dbc.query("use manage")
     conn = dbc.get_conn()
-    if len(sys.argv) < 2:
-        search_days = 7
-    else:
-        search_days = int(sys.argv[1])
-    if os.path.exists(lock_file):
-        logger.LOG("[WARN]find lock file...")
-        old_pid = file(lock_file).read()
-        mtime=os.path.getmtime(lock_file)
-        time_now=time.time()
-        time_diff = time_now-mtime
-        if time_diff > 60*60:
-            os.system("kill "+old_pid)
-            logger.LOG("[INFO]killing timeout process,pid:%s",old_pid)
-            os.unlink(lock_file)
-            file(lock_file,'w').write(str(pid))
-        else:
-            logger.LOG("[INFO]find running process,running time %s seconds,exit!",time_diff)
-            sys.exit('find running process, graceful exit!')
+    get_hot_alist_from_page("http://bbs.tianya.cn/list.jsp?item=feeling&grade=3&sub=1&order=1")
 
-    else:
-        #创建lock文件，写入pid
-        logger.LOG("[INFO]creating lock file,writing pid,%s",pid)
-        file(lock_file,'w').write(str(pid))
-    keep_rolling()
-    logger.LOG('[INFO]delete lock file!')
-    if os.path.exists(lock_file):
-        os.unlink(lock_file)
