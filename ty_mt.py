@@ -155,7 +155,7 @@ class Worker():
             start_page = start_page + 1
     def add_article(self, art_url, art_title, art_id, author_name, cat_id):        
         global logger
-        print "asdasd@@@@"
+        #print "asdasd@@@@"
 
         author_id = self.get_author_id(author_name)
         art_title = self.conn.escape_string(art_title)
@@ -344,6 +344,7 @@ def check_lost_floors(article_id, start_floor_id):
     n_floor = 0
         
     sql = "SELECT floor_id from novel where novel_id = '%s' and floor_id > '%s' ORDER BY floor_id ASC" % (article_id, start_floor_id)
+    #print sql
     for f in dbc.getAll(sql):
         p_floor = f["floor_id"]
         #print "p_floor is %d" % p_floor
@@ -389,7 +390,7 @@ def get_hot_alist_from_page(art_url):
     global logger
     if art_url is None:
         return (-1, None)
-    logger.LOG("[INFO]get hot article %s", art_url)
+    logger.LOG("[INFO]download article %s", art_url)
     if not _DEBUG_:
         retry = 2
         while retry > 0:
@@ -424,7 +425,9 @@ def get_hot_alist_from_page(art_url):
                 url = dd.find('a')['href'].encode(coding)
                 ### title也是unicode
                 title = dd.find('a').contents[0].string.encode(coding)
-                w.insert_hot_article(title, url)
+                inserted_article_id = w.insert_hot_article(title, url)
+                if inserted_article_id > 0:
+                    logger.LOG("[INFO]add hot article %s", title)
             count += 1
 
     except Exception,e:
@@ -459,6 +462,10 @@ def extract_article_meta(art_url):
         url_tag = BeautifulSoup(content, parseOnlyThese=SoupStrainer("meta", { "http-equiv" : "mobile-agent" }),smartQuotesTo=None)
         coding = article_tag.originalEncoding
         atl_title_content = article_tag.find('span', {"class": "s_title"}).find('span').renderContents(coding)
+        title_remove_font = re.compile("\<font .+\>.*\<\/font\>")
+        print "before remove:", atl_title_content
+        atl_title_content = title_remove_font.sub("", atl_title_content)
+        print "after remove:", atl_title_content
         author_name = ""
         for t in author_tag:
             author_name = t.find('span').find('a').string.encode(coding)
@@ -571,6 +578,8 @@ if __name__ == '__main__':
     elif r_type == "3":
         _DEBUG_ = 0
         get_hot_alist_from_page('http://bbs.tianya.cn/list.jsp?item=feeling&grade=3&sub=1&order=1')
+        get_hot_alist_from_page('http://bbs.tianya.cn/list.jsp?item=develop&grade=3&sub=1&order=1')
+        get_hot_alist_from_page('http://bbs.tianya.cn/list.jsp?item=house&grade=3&sub=2&order=1')
     else:
         print "bad input"
         usage()
