@@ -24,7 +24,7 @@ import time
 socket.setdefaulttimeout(timeout)
 log_path = "/home/log/ty-mt.log" 
 _DEBUG_ = 0
-_PRO_LIMIT_ = 3
+_PRO_LIMIT_ = 10
 _HTTP_ERROR_SLEEP_ = 3
 #lock_file = "/home/log/ty.lock"
 pid = "/home/log/ty-mt.pid"
@@ -385,7 +385,22 @@ def check_lost_floors(article_id, start_floor_id):
         print "please run ota jobs later!"
     
    
-           
+def consume_queue_a(limit):
+    global logger, dbc
+    sql = "SELECT id, url, status FROM novel_queue_a WHERE status = 0 ORDER BY mtime DESC LIMIT %s" % limit
+    jobs = dbc.getAll(sql)
+    for job in jobs:
+        print job['id'],job['url'],job['status']
+        (code,msg) = extract_article_meta(job['url'])
+        if code != -1:
+            sql = "UPDATE novel_queue_a SET status = 1 , mtime = NOW() WHERE id = '%s' LIMIT 1" % job['id']
+            dbc.query(sql)
+        else:
+            sql = "UPDATE novel_queue_a SET status = 1 , mtime = NOW() WHERE id = '%s' LIMIT 1" % job['id']
+            dbc.query(sql)
+                        
+            
+            
 def get_hot_alist_from_page(art_url):
     global logger
     if art_url is None:
@@ -463,9 +478,7 @@ def extract_article_meta(art_url):
         coding = article_tag.originalEncoding
         atl_title_content = article_tag.find('span', {"class": "s_title"}).find('span').renderContents(coding)
         title_remove_font = re.compile("\<font .+\>.*\<\/font\>")
-        print "before remove:", atl_title_content
         atl_title_content = title_remove_font.sub("", atl_title_content)
-        print "after remove:", atl_title_content
         author_name = ""
         for t in author_tag:
             author_name = t.find('span').find('a').string.encode(coding)
@@ -491,8 +504,11 @@ def extract_article_meta(art_url):
     ret = w.add_article(mobile_url, atl_title_content, art_id, author_name, art_cat)
     if ret is True:
         logger.LOG("[INFO]insert article <%s> done1", atl_title_content)
+        return (1, None)
     else:
         logger.LOG("[ERROR]error when insert article <%s>", atl_title_content)
+        return (-1, "error in insert")
+    
       
 
 def usage():
@@ -580,6 +596,9 @@ if __name__ == '__main__':
         get_hot_alist_from_page('http://bbs.tianya.cn/list.jsp?item=feeling&grade=3&sub=1&order=1')
         get_hot_alist_from_page('http://bbs.tianya.cn/list.jsp?item=develop&grade=3&sub=1&order=1')
         get_hot_alist_from_page('http://bbs.tianya.cn/list.jsp?item=house&grade=3&sub=2&order=1')
+    elif r_type == "4":
+        _DEBUG_ = 0
+        consume_queue_a(20)
     else:
         print "bad input"
         usage()
