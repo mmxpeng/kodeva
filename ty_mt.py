@@ -140,17 +140,45 @@ class Worker():
             logger.LOG("[ERROR]bad post detected, novel_id<%d>, floor_id<%s>, ctime<%s>", art_id, floor_id, t)
             return True
         return False
+    # 从起始页面开始抓取，自动进行翻页，直到出错或者到最后一页才停止
     def loop_get_content(self, art_url, art_id, start_page):
         global logger
+        new_article_num = 0
         while 1:
             current_url = art_url + "&p=" + str(start_page)
-            (s, is_last_page) = self.get_content(current_url, art_id, start_page)
+            (s, is_last_page, new_downloads) = self.get_content(current_url, art_id, start_page)
+            new_article_num += new_downloads
             #FIXME: DEBUG CODE HEAE
             #break
             if s < 0 or is_last_page:
                 if is_last_page:
                     sql = "UPDATE novel_list SET need_init = 0 where novel_id = '%d' " % (art_id)
                     self.dbc.query(sql)
+                    logger.LOG("[INFO]quit for novel: %d, reach last_page %d!", art_id, start_page)
+
+                    cur_grab_interval = int(self.dbc.getOne("SELECT grab_interval FROM novel_list where novel_id = '%d' LIMIT 1" % (art_id)))
+                    #如果新下载的文章数为0(长时间没有文章了>??)
+                    if new_article_num == 0:
+                        if cur_grab_interval*2 >= 1440:
+                            # 最大1440分钟，也就是一天
+                            new_grab_interval = 1440
+                        else:
+                            # 抓取间隔翻倍
+                            new_grab_interval = cur_grab_interval * 2
+                    else:
+                        if cur_grab_interval/2 <= 10:
+                            new_grab_interval = 10
+                        else:
+                            new_grab_interval = int(cur_grab_interval/2)
+                        
+                                
+                    sql = "UPDATE novel_list SET grab_interval = '%d' where novel_id = '%d'" % (new_grab_interval,art_id)
+                    self.dbc.query(sql)
+
+                    logger.LOG("[INFO]set grab_interval from ->%d<- to ->%d<-", cur_grab_interval, new_grab_interval)
+                        
+                else:
+                    logger.LOG("[INFO]quit for novel: %d, error when parse page??", art_id)
                 break
             start_page = start_page + 1
     def add_article(self, art_url, art_title, art_id, author_name, cat_id):        
@@ -167,7 +195,7 @@ class Worker():
     def get_content(self, art_url,art_id,page_id, is_roger_task = 0):
         global logger
         if art_url is None:
-            return (-1, None)
+            return (-1, None, 0)
         logger.LOG("[INFO]download article %d, page %d", art_id, page_id)
         retry = 2
         while retry > 0:
@@ -179,12 +207,12 @@ class Worker():
         #content = file("./article.html").read()
         if content is None:
             logger.LOG("[ERROR]download error for article %d, page %d!", art_id, page_id)
-            return (-1, None)
+            return (-1, None, 0)
         logger.LOG("[INFO]content size %d", len(content))
         if len(content) < 5000:
             logger.LOG("[ERROR]maybe bad response,dumping it...")
             self.save_content(content, art_id, page_id)
-            return (-1, None)
+            return (-1, None, 0)
         try:
             article_tag = BeautifulSoup(content, parseOnlyThese=SoupStrainer("div", { "class" : "sp lk" }),smartQuotesTo=None)
             author_tag = BeautifulSoup(content, parseOnlyThese=SoupStrainer("div", { "class" : "lk" }),smartQuotesTo=None)
@@ -196,7 +224,7 @@ class Worker():
                 author_tag = BeautifulSoup(content, parseOnlyThese=SoupStrainer("div", { "class" : "lk" }),smartQuotesTo=None)
             except Exception,e:
                 logger.LOG("[ERROR]error when parsing article content ,%s",e)
-                return (-1, None)
+                return (-1, None, 0)
         #print len(article_tag), len(author_tag)
         #remove_adtag_re = re.compile("\<div class=\"article_adv_1\"\>.*\<\/div\>")
         remove_adtag_re = re.compile("\<a href=\"rep\.jsp.*\"\>.*\<\/a\>")
@@ -266,12 +294,15 @@ class Worker():
             logger.LOG("[ERROR]shit happens, dump page...")
             self.save_content(content, art_id, page_id)
         if len(floor_id_list) == 0:
-            return (0, None)
+            return (0, None, 0)
         if not is_roger_task:
             last_floor_id = floor_id_list[-1]
-            sql = "UPDATE novel_list SET last_floor_id = '%s', last_page_id = '%s', last_grab_time = unix_timestamp()  where novel_id = '%d' " % (last_floor_id, page_id, art_id)
+            if new_post_download  == 0:
+                sql = "UPDATE novel_list SET last_floor_id = '%s', last_page_id = '%s', last_grab_time = unix_timestamp()  where novel_id = '%d' " % (last_floor_id, page_id, art_id)
+            else:
+                sql = "UPDATE novel_list SET last_floor_id = '%s', last_page_id = '%s', last_grab_time = unix_timestamp() , last_new_download_time = unix_timestamp() where novel_id = '%d' " % (last_floor_id, page_id, art_id)
             self.dbc.query(sql)
-        return (0, is_last_page)
+        return (0, is_last_page, new_post_download)
 
 def get_task_list(task_type, task_limit):
     global logger, dbc
